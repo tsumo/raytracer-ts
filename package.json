@@ -2,10 +2,11 @@
   "name": "raytracer-ts",
   "version": "0.0.1",
   "description": "",
-  "main": "lib/index.js",
-  "types": "lib/index.d.ts",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
   "scripts": {
     "build": "tsc",
+    "watch": "tsc --watch",
     "lint": "eslint ./src/*",
     "format": "prettier --write \"src/**/*.ts\""
   },

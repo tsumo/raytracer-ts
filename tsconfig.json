@@ -2,10 +2,15 @@
   "compilerOptions": {
     "target": "es5",
     "lib": ["es7", "dom"],
-    "module": "commonjs",
+    "module": "none",
     "declaration": true,
-    "outDir": "./lib",
+    "outDir": "./build",
     "strict": true
+  },
+  "watchOptions": {
+    "watchFile": "useFsEvents",
+    "watchDirectory": "useFsEvents",
+    "fallbackPolling": "dynamicPriority"
   },
   "include": ["src"],
   "exclude": ["node_modules"]
