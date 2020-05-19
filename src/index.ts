@@ -1,89 +1,157 @@
-// -----------
-// Vector math
-// -----------
-const vUP: Vector3 = { x: 0, y: 1, z: 0 }
+import {
+  Camera,
+  Vector3,
+  Sphere,
+  Scene,
+  Color,
+  Ray,
+  Intersection,
+} from './types'
+import * as v from './vectors'
+import { colorToVector3, vector3ToColor } from './utils'
 
-const vZERO: Vector3 = { x: 0, y: 0, z: 0 }
-
-const vDotProduct = (a: Vector3, b: Vector3): number =>
-  a.x * b.x + a.y * b.y + a.z * b.z
-
-const vCrossProduct = (a: Vector3, b: Vector3): Vector3 => ({
-  x: a.y * b.z - a.z * b.y,
-  y: a.z * b.x - a.x * b.z,
-  z: a.x * b.y - a.y * b.x,
-})
-
-const vScale = (a: Vector3, t: number): Vector3 => ({
-  x: a.x * t,
-  y: a.y * t,
-  z: a.z * t,
-})
-
-const vLength = (a: Vector3): number => Math.sqrt(vDotProduct(a, a))
-
-const vUnitVector = (a: Vector3): Vector3 => vScale(a, 1 / vLength(a))
-
-const vAdd = (a: Vector3, b: Vector3): Vector3 => ({
-  x: a.x + b.x,
-  y: a.y + b.y,
-  z: a.z + b.z,
-})
-
-const vAdd3 = (a: Vector3, b: Vector3, c: Vector3): Vector3 => ({
-  x: a.x + b.x + c.x,
-  y: a.y + b.y + c.y,
-  z: a.z + b.z + c.z,
-})
-
-const vSubtract = (a: Vector3, b: Vector3): Vector3 => ({
-  x: a.x - b.x,
-  y: a.y - b.y,
-  z: a.z - b.z,
-})
-
-const vReflect = (a: Vector3, normal: Vector3): Vector3 => {
-  const d = vScale(normal, vDotProduct(a, normal))
-  return vSubtract(vScale(d, 2), a)
+const render = (
+  scene: Scene,
+  width: number,
+  height: number,
+  data: ImageData,
+  context: CanvasRenderingContext2D,
+): void => {
+  const { camera } = scene
+  const eyeVector = v.unitVector(v.subtract(camera.direction, camera.position))
+  const vpRight = v.unitVector(v.crossProduct(eyeVector, v.UP))
+  const vpUp = v.unitVector(v.crossProduct(vpRight, eyeVector))
+  const fovRadians = (Math.PI * (camera.fov / 2)) / 180
+  const ratio = height / width
+  const halfWidth = Math.tan(fovRadians)
+  const halfHeight = ratio * halfWidth
+  const cameraWidth = halfWidth * 2
+  const cameraHeight = halfHeight * 2
+  const pixelWidth = cameraWidth / (width - 1)
+  const pixelHeight = cameraHeight / (height - 1)
+  let index = 0
+  let color: Color = { r: 0, g: 0, b: 0 }
+  let ray: Ray = {
+    position: camera.position,
+    direction: { x: 0, y: 0, z: 0 },
+  }
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) {
+      const xComp = v.scale(vpRight, x * pixelWidth - halfWidth)
+      const yComp = v.scale(vpUp, y * pixelHeight - halfHeight)
+      ray.direction = v.unitVector(v.add3(eyeVector, xComp, yComp))
+      color = trace(ray, scene, 0)
+      index = x * 4 + y * width * 4
+      data.data[index + 0] = color.r
+      data.data[index + 1] = color.g
+      data.data[index + 2] = color.b
+      data.data[index + 3] = 255
+    }
+  }
+  context.putImageData(data, 0, 0)
 }
 
-// -----
-// Types
-// -----
-type Vector3 = { x: number; y: number; z: number }
-
-type Color = { r: number; g: number; b: number }
-
-type Ray = {
-  position: Vector3
-  direction: Vector3
+const trace = (ray: Ray, scene: Scene, depth: number): Color => {
+  if (depth > 3) {
+    return { r: 0, g: 0, b: 0 }
+  }
+  const intersection = intersectScene(ray, scene)
+  const [dist, sphere] = intersection
+  if (dist === Infinity || sphere === null) {
+    return { r: 255, g: 255, b: 255 }
+  }
+  const pointAtTime = v.add(ray.position, v.scale(ray.direction, dist))
+  return surface(
+    ray,
+    scene,
+    sphere,
+    pointAtTime,
+    sphereNormal(sphere, pointAtTime),
+    depth,
+  )
 }
 
-type Camera = Ray & {
-  fov: number
+const intersectScene = (ray: Ray, scene: Scene): Intersection => {
+  const closest: Intersection = [Infinity, null]
+  for (let i = 0; i < scene.spheres.length; i++) {
+    const sphere = scene.spheres[i]
+    const dist = sphereIntersection(sphere, ray)
+    if (dist != undefined && dist < closest[0]) {
+      closest[0] = dist
+      closest[1] = sphere
+    }
+  }
+  return closest
 }
 
-type Sphere = {
-  position: Vector3
-  radius: number
-  color: Color
-  specular: number
-  lambert: number
-  ambient: number
+const sphereIntersection = (sphere: Sphere, ray: Ray): number | undefined => {
+  const eyeToCenter = v.subtract(sphere.position, ray.position)
+  const vv = v.dotProduct(eyeToCenter, ray.direction)
+  const eoDot = v.dotProduct(eyeToCenter, eyeToCenter)
+  const discriminant = sphere.radius * sphere.radius - eoDot + vv * vv
+  if (discriminant < 0) {
+    return
+  } else {
+    return vv - Math.sqrt(discriminant)
+  }
 }
 
-type Scene = {
-  camera: Camera
-  lights: Vector3[]
-  spheres: Sphere[]
+const sphereNormal = (sphere: Sphere, position: Vector3): Vector3 =>
+  v.unitVector(v.subtract(position, sphere.position))
+
+const surface = (
+  ray: Ray,
+  scene: Scene,
+  sphere: Sphere,
+  pointAtTime: Vector3,
+  normal: Vector3,
+  depth: number,
+): Color => {
+  const b = colorToVector3(sphere.color)
+  let c = v.ZERO
+  let lambertAmount = 0
+  if (sphere.lambert) {
+    for (let i = 0; i < scene.lights.length; i++) {
+      const light = scene.lights[i]
+      if (!isLightVisible(pointAtTime, scene, light)) {
+        continue
+      }
+      const contribution = v.dotProduct(
+        v.unitVector(v.subtract(light, pointAtTime)),
+        normal,
+      )
+      if (contribution > 0) {
+        lambertAmount += contribution
+      }
+    }
+  }
+  if (sphere.specular) {
+    const reflectedRay: Ray = {
+      position: pointAtTime,
+      direction: v.reflect(ray.direction, normal),
+    }
+    const reflectedColor: Color = trace(reflectedRay, scene, depth + 1)
+    c = v.add(c, v.scale(colorToVector3(reflectedColor), sphere.specular))
+  }
+  lambertAmount = Math.min(1, lambertAmount)
+  return vector3ToColor(
+    v.add3(
+      c,
+      v.scale(b, lambertAmount * sphere.lambert),
+      v.scale(b, sphere.ambient),
+    ),
+  )
 }
 
-type Intersection = [number, Sphere | null]
+const isLightVisible = (position: Vector3, scene: Scene, light: Vector3) => {
+  const intersection = intersectScene(
+    { position, direction: v.unitVector(v.subtract(position, light)) },
+    scene,
+  )
+  return intersection[0] > -0.005
+}
 
-// ---------
-// Raytracer
-// ---------
-const init = () => {
+const init = (): void => {
   const canvas = document.createElement('canvas')
   const context = canvas.getContext('2d')
   if (!context) {
@@ -134,7 +202,7 @@ const init = () => {
   }
   let planet1 = 0
   let planet2 = 0
-  const tick = () => {
+  const tick = (): void => {
     planet1 += 0.1
     planet2 += 0.2
     scene.spheres[1].position.x = Math.sin(planet1) * 3.5
@@ -146,150 +214,5 @@ const init = () => {
   }
   tick()
 }
-
-const render = (
-  scene: Scene,
-  width: number,
-  height: number,
-  data: ImageData,
-  context: CanvasRenderingContext2D,
-) => {
-  const { camera } = scene
-  const eyeVector = vUnitVector(vSubtract(camera.direction, camera.position))
-  const vpRight = vUnitVector(vCrossProduct(eyeVector, vUP))
-  const vpUp = vUnitVector(vCrossProduct(vpRight, eyeVector))
-  const fovRadians = (Math.PI * (camera.fov / 2)) / 180
-  const ratio = height / width
-  const halfWidth = Math.tan(fovRadians)
-  const halfHeight = ratio * halfWidth
-  const cameraWidth = halfWidth * 2
-  const cameraHeight = halfHeight * 2
-  const pixelWidth = cameraWidth / (width - 1)
-  const pixelHeight = cameraHeight / (height - 1)
-  let index = 0
-  let color: Color = { r: 0, g: 0, b: 0 }
-  let ray: Ray = {
-    position: camera.position,
-    direction: { x: 0, y: 0, z: 0 },
-  }
-  for (let x = 0; x < width; x++) {
-    for (let y = 0; y < height; y++) {
-      const xComp = vScale(vpRight, x * pixelWidth - halfWidth)
-      const yComp = vScale(vpUp, y * pixelHeight - halfHeight)
-      ray.direction = vUnitVector(vAdd3(eyeVector, xComp, yComp))
-      color = trace(ray, scene, 0)
-      index = x * 4 + y * width * 4
-      data.data[index + 0] = color.r
-      data.data[index + 1] = color.g
-      data.data[index + 2] = color.b
-      data.data[index + 3] = 255
-    }
-  }
-  context.putImageData(data, 0, 0)
-}
-
-const trace = (ray: Ray, scene: Scene, depth: number): Color => {
-  if (depth > 3) {
-    return { r: 0, g: 0, b: 0 }
-  }
-  const intersection = intersectScene(ray, scene)
-  const [dist, sphere] = intersection
-  if (dist === Infinity || sphere === null) {
-    return { r: 255, g: 255, b: 255 }
-  }
-  const pointAtTime = vAdd(ray.position, vScale(ray.direction, dist))
-  return surface(
-    ray,
-    scene,
-    sphere,
-    pointAtTime,
-    sphereNormal(sphere, pointAtTime),
-    depth,
-  )
-}
-
-const intersectScene = (ray: Ray, scene: Scene): Intersection => {
-  const closest: Intersection = [Infinity, null]
-  for (let i = 0; i < scene.spheres.length; i++) {
-    const sphere = scene.spheres[i]
-    const dist = sphereIntersection(sphere, ray)
-    if (dist != undefined && dist < closest[0]) {
-      closest[0] = dist
-      closest[1] = sphere
-    }
-  }
-  return closest
-}
-
-const sphereIntersection = (sphere: Sphere, ray: Ray): number | undefined => {
-  const eyeToCenter = vSubtract(sphere.position, ray.position)
-  const v = vDotProduct(eyeToCenter, ray.direction)
-  const eoDot = vDotProduct(eyeToCenter, eyeToCenter)
-  const discriminant = sphere.radius * sphere.radius - eoDot + v * v
-  if (discriminant < 0) {
-    return
-  } else {
-    return v - Math.sqrt(discriminant)
-  }
-}
-
-const sphereNormal = (sphere: Sphere, position: Vector3): Vector3 =>
-  vUnitVector(vSubtract(position, sphere.position))
-
-const surface = (
-  ray: Ray,
-  scene: Scene,
-  sphere: Sphere,
-  pointAtTime: Vector3,
-  normal: Vector3,
-  depth: number,
-): Color => {
-  const b = colorToVector3(sphere.color)
-  let c = vZERO
-  let lambertAmount = 0
-  if (sphere.lambert) {
-    for (let i = 0; i < scene.lights.length; i++) {
-      const light = scene.lights[i]
-      if (!isLightVisible(pointAtTime, scene, light)) {
-        continue
-      }
-      const contribution = vDotProduct(
-        vUnitVector(vSubtract(light, pointAtTime)),
-        normal,
-      )
-      if (contribution > 0) {
-        lambertAmount += contribution
-      }
-    }
-  }
-  if (sphere.specular) {
-    const reflectedRay: Ray = {
-      position: pointAtTime,
-      direction: vReflect(ray.direction, normal),
-    }
-    const reflectedColor: Color = trace(reflectedRay, scene, depth + 1)
-    c = vAdd(c, vScale(colorToVector3(reflectedColor), sphere.specular))
-  }
-  lambertAmount = Math.min(1, lambertAmount)
-  return vector3ToColor(
-    vAdd3(
-      c,
-      vScale(b, lambertAmount * sphere.lambert),
-      vScale(b, sphere.ambient),
-    ),
-  )
-}
-
-const isLightVisible = (position: Vector3, scene: Scene, light: Vector3) => {
-  const intersection = intersectScene(
-    { position, direction: vUnitVector(vSubtract(position, light)) },
-    scene,
-  )
-  return intersection[0] > -0.005
-}
-
-const colorToVector3 = (c: Color): Vector3 => ({ x: c.r, y: c.g, z: c.b })
-
-const vector3ToColor = (v: Vector3): Color => ({ r: v.x, g: v.y, b: v.z })
 
 window.onload = init
