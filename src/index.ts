@@ -157,6 +157,8 @@ const init = (): void => {
   if (!context) {
     return
   }
+  canvas.style.display = 'block'
+  canvas.style.margin = '0 auto'
   document.body.appendChild(canvas)
   const width = 640 * 0.5
   const height = 480 * 0.5
