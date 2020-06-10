@@ -42,11 +42,14 @@ const init = (): void => {
   if (!context) {
     return
   }
-  canvas.style.display = 'block'
-  canvas.style.margin = '0 auto'
-  document.body.appendChild(canvas)
   const width = 640 * 0.5
   const height = 480 * 0.5
+  canvas.style.display = 'block'
+  canvas.style.margin = '0 auto'
+  canvas.style.width = `${width * 2}px`
+  canvas.style.height = `${height * 2}px`
+  canvas.style.imageRendering = 'crisp-edges'
+  document.body.appendChild(canvas)
   canvas.width = width
   canvas.height = height
   const data = context.getImageData(0, 0, width, height)
