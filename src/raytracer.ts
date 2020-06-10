@@ -23,7 +23,7 @@ export const render = (
   const pixelHeight = cameraHeight / (height - 1)
   let index = 0
   let color: Color = { r: 0, g: 0, b: 0 }
-  let ray: Ray = {
+  const ray: Ray = {
     position: camera.position,
     direction: { x: 0, y: 0, z: 0 },
   }
@@ -142,7 +142,7 @@ export const isLightVisible = (
   position: Vector3,
   scene: Scene,
   light: Vector3,
-) => {
+): boolean => {
   const intersection = intersectScene(
     { position, direction: v.unitVector(v.subtract(position, light)) },
     scene,
